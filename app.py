@@ -9,7 +9,7 @@ from peft import PeftModel
 
 # ================== ตั้งค่าเริ่มต้น (แก้ได้จาก Sidebar) ==================
 DEFAULT_BASE_ID = "scb10x/llama3.2-typhoon2-t1-3b-research-preview"
-DEFAULT_ADAPTER = ""  # ใส่ path โฟลเดอร์ adapter หรือ HF repo id ถ้ามี
+DEFAULT_ADAPTER = "./adapter_safetylfinal"  # ใส่ path โฟลเดอร์ adapter หรือ HF repo id ถ้ามี
 
 SYSTEM_MSG = (
     "คุณคือผู้ช่วย AI ของกองทุนเงินให้กู้ยืมเพื่อการศึกษา (กยศ.) "
@@ -188,3 +188,4 @@ if user_input:
             answer = generate_answer(user_input)
             st.markdown(answer)
     st.session_state.history.append({"role": "assistant", "content": answer})
+
