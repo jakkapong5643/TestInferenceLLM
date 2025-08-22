@@ -6,8 +6,6 @@ from transformers import (
 )
 from transformers.utils import is_bitsandbytes_available
 from peft import PeftModel
-from transformers import BitsAndBytesConfig
-import bitsandbytes as bnb
 
 # ================== ตั้งค่าเริ่มต้น (แก้ได้จาก Sidebar) ==================
 DEFAULT_BASE_ID = "scb10x/llama3.2-typhoon2-t1-3b-research-preview"
@@ -52,7 +50,7 @@ def load_model_and_tokenizer(base_id: str, adapter_dir: str, want_4bit: bool):
         if not want_4bit:
             return False
         try:
-              # noqa
+            import bitsandbytes as bnb  # noqa
         except Exception:
             return False
         # เปิดเฉพาะเมื่อมี backend จริง ๆ
@@ -64,6 +62,7 @@ def load_model_and_tokenizer(base_id: str, adapter_dir: str, want_4bit: bool):
     enable_4bit = _bnb_ok()
     quant = None
     if enable_4bit:
+        from transformers import BitsAndBytesConfig
         quant = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
