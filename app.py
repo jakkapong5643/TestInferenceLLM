@@ -6,6 +6,8 @@ from transformers import (
 )
 from transformers.utils import is_bitsandbytes_available
 from peft import PeftModel
+from transformers import BitsAndBytesConfig
+import bitsandbytes as bnb
 
 # ================== ตั้งค่าเริ่มต้น (แก้ได้จาก Sidebar) ==================
 DEFAULT_BASE_ID = "scb10x/llama3.2-typhoon2-t1-3b-research-preview"
@@ -35,13 +37,33 @@ with st.sidebar:
 
 # ================== Cache โหลดโมเดล ==================
 @st.cache_resource(show_spinner=True)
-def load_model_and_tokenizer(base_id: str, adapter_dir: str, use_4bit: bool):
-    # เลือก dtype ที่เหมาะสม
-    use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
-    dtype = torch.bfloat16 if use_bf16 else torch.float16
+@st.cache_resource(show_spinner=True)
+def load_model_and_tokenizer(base_id: str, adapter_dir: str, want_4bit: bool):
+    # 1) เลือก dtype ให้เหมาะกับเครื่อง
+    if torch.cuda.is_available():
+        use_bf16 = torch.cuda.is_bf16_supported()
+        dtype = torch.bfloat16 if use_bf16 else torch.float16
+    else:
+        # CPU/MPS/XPU ที่ไม่มี bnb -> ใช้ float32 เพื่อความเสถียร
+        dtype = torch.float32
 
+    # 2) ตรวจความพร้อมของ bitsandbytes อย่างปลอดภัย
+    def _bnb_ok():
+        if not want_4bit:
+            return False
+        try:
+              # noqa
+        except Exception:
+            return False
+        # เปิดเฉพาะเมื่อมี backend จริง ๆ
+        if torch.cuda.is_available():
+            return True
+        # (ถ้าคุณตั้งใจจะใช้ MPS/HPU/XPU/NPU/CPU+IPEX ต้องติดตั้ง backend ให้ครบก่อน ค่อยเปิดเอง)
+        return False
+
+    enable_4bit = _bnb_ok()
     quant = None
-    if use_4bit and is_bitsandbytes_available():
+    if enable_4bit:
         quant = BitsAndBytesConfig(
             load_in_4bit=True,
             bnb_4bit_quant_type="nf4",
@@ -51,44 +73,54 @@ def load_model_and_tokenizer(base_id: str, adapter_dir: str, use_4bit: bool):
 
     tokenizer = AutoTokenizer.from_pretrained(base_id, use_fast=True, trust_remote_code=True)
     if tokenizer.pad_token_id is None:
-        # กัน error เวลา generate แบบมี padding
         tokenizer.pad_token = tokenizer.eos_token
 
-    # บาง environment อาจไม่รองรับ sdpa -> fallback อัตโนมัติ
-    try:
-        base = AutoModelForCausalLM.from_pretrained(
-            base_id,
+    # 3) พยายามโหลดด้วย bnb ถ้าเปิดไว้; ถ้าพัง ให้ fallback อัตโนมัติแบบไม่ใช้ bnb
+    def _load_base(try_quant: bool):
+        kw = dict(
+            pretrained_model_name_or_path=base_id,
             device_map="auto",
             torch_dtype=dtype,
             trust_remote_code=True,
-            attn_implementation="sdpa",
-            quantization_config=quant,
+            low_cpu_mem_usage=True,
         )
-    except Exception:
-        base = AutoModelForCausalLM.from_pretrained(
-            base_id,
-            device_map="auto",
-            torch_dtype=dtype,
-            trust_remote_code=True,
-            quantization_config=quant,
-        )
+        # บาง env ไม่รองรับ sdpa บางเวอร์ชัน ลองใส่แล้วค่อย fallback
+        try:
+            if try_quant and quant is not None:
+                kw["quantization_config"] = quant
+            base = AutoModelForCausalLM.from_pretrained(attn_implementation="sdpa", **kw)
+            return base
+        except Exception:
+            if try_quant and quant is not None:
+                # ลองใหม่แบบตัด quantization ออก
+                pass
+            # ลองอีกครั้งแบบไม่ระบุ sdpa/quantization เลย
+            kw.pop("quantization_config", None)
+            if "attn_implementation" in kw:
+                kw.pop("attn_implementation", None)
+            base = AutoModelForCausalLM.from_pretrained(**kw)
+            return base
+
+    base = _load_base(try_quant=enable_4bit)
 
     model = base
-    # โหลด PEFT adapter ถ้าระบุมา (รองรับทั้ง path และ HF repo id)
     if adapter_dir.strip():
         try:
             model = PeftModel.from_pretrained(base, adapter_dir.strip())
         except Exception as e:
-            st.warning(f"โหลด Adapter ไม่สำเร็จ ({e}) -> จะใช้ base model แทน")
+            st.warning(f"โหลด Adapter ไม่สำเร็จ ({e}) -> ใช้ base model แทน")
 
     model.eval()
-    # เปิดใช้ cache เพื่อความเร็ว
     try:
         model.config.use_cache = True
     except Exception:
         pass
 
+    if not enable_4bit:
+        st.info("🧩 bitsandbytes ถูกปิดอัตโนมัติ (ไม่พบ backend ที่รองรับ) — กำลังใช้โหลดโมเดลแบบไม่ quantized")
+
     return tokenizer, model
+
 
 tokenizer, model = load_model_and_tokenizer(base_id, adapter_dir, use_4bit)
 
