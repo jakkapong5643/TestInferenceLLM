@@ -2,7 +2,5 @@ streamlit>=1.36.0
 torch>=2.2.0
 transformers==4.52.4
 peft==0.15.2
-accelerate>=1.0.0
 safetensors>=0.4.3
-# bitsandbytes เฉพาะ GPU เท่านั้น
-bitsandbytes>=0.43.2 ; platform_system != "Windows" and platform_machine == "x86_64"
+sentencepiece>=0.2.0
