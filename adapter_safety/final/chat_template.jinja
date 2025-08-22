@@ -1,0 +1,55 @@
+{{- bos_token }}
+{%- if custom_tools is defined %}
+    {%- set tools = custom_tools %}
+{%- endif %}
+{%- if not date_string is defined %}
+    {%- set date_string = "26 Jul 2024" %}
+{%- endif %}
+{%- if not tools is defined %}
+    {%- set tools = none %}
+{%- endif %}
+
+{#- This block extracts the system message, so we can slot it into the right place. #}
+{%- if messages[0]['role'] == 'system' %}
+    {%- set system_message = messages[0]['content']|trim %}
+    {%- set messages = messages[1:] %}
+{%- else %}
+    {%- set system_message = "" %}
+{%- endif %}
+
+{#- System message + builtin tools #}
+{{- "<|start_header_id|>system<|end_header_id|>\n\n" }}
+{{- "Cutting Knowledge Date: December 2023\n" }}
+{{- "Today Date: " + date_string + "\n\n" }}
+{{- system_message }}
+{%- if tools is not none %}
+    {{- "\n" }}
+    {{- "You are given a question and a set of possible functions. Based on the question, you will need to make one or more function/tool calls to achieve the purpose." }}
+    {{- "If none of the function can be used, point it out. If the given question lacks the parameters required by the function, also point it out." }}
+    {{- "You should only return the function call in tools call sections." }}
+    {{- "If you decide to invoke any of the function(s), you MUST put it in the format of [Function(arguments1={{params_name1: params_value1,params_name2: params_value2, ...}},  name1=function_name1), Function(arguments2={{params}},  name2=function_name2) , ...]"}}
+    {{- "You SHOULD NOT include any other text in the response.\nHere is a list of functions in JSON format that you can invoke.\n" }}
+    {%- for t in tools %}
+        {{- t | tojson(indent=4) }}
+        {{- "\n\n" }}
+    {%- endfor %}
+{%- endif %}
+{{- "<|eot_id|>" }}
+
+
+{%- for message in messages %}
+    {%- if not (message.role == 'tool') %}
+        {{- '<|start_header_id|>' + message['role'] + '<|end_header_id|>\n\n'+ message['content'] | trim + '<|eot_id|>' }}
+    {%- elif message.role == "tool" %}
+        {{- "<|start_header_id|>tool<|end_header_id|>\n\n" }}
+        {%- if message.content is mapping or message.content is iterable %}
+            {{- message.content | tojson }}
+        {%- else %}
+            {{- message.content }}
+        {%- endif %}
+        {{- "<|eot_id|>" }}
+    {%- endif %}
+{%- endfor %}
+{%- if add_generation_prompt %}
+    {{- '<|start_header_id|>assistant<|end_header_id|>\n\n' }}
+{%- endif %}
