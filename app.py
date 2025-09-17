@@ -4,22 +4,20 @@ import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
 
-# ------------------ UI: Sidebar controls ------------------
-st.set_page_config(page_title="Student Loan Chatbot (Typhoon T1 3B)", page_icon="💬", layout="wide")
-st.title("💬 กยศ. Chatbot — Typhoon T1 3B (PEFT optional)")
+st.set_page_config(page_title="Student Loan Chatbot (Typhoon T1 3B)", page_icon="", layout="wide")
+st.title("กยศ. Chatbot — Typhoon T1 3B (PEFT optional)")
 
 with st.sidebar:
-    st.subheader("⚙️ Settings")
+    st.subheader("Settings")
     base_id = st.text_input(
         "Base model",
         value="scb10x/llama3.2-typhoon2-t1-3b-research-preview",
         help="Hugging Face repo id ของ base model"
     )
-    use_adapter = st.checkbox("ใช้ LoRA Adapter", value=True)
+    use_adapter = st.checkbox("LoRA Adapter", value=True)
     adapter_dir = st.text_input(
         "Adapter directory",
-        value=".\typhoon-t1-3b-qlora\adapter_safety\final",
-        help="พาธไปยังโฟลเดอร์ adapter ที่มี adapter_config.json/adapter_model.bin"
+        value=".\typhoon-t1-3b-qlora\adapter_safety\final"
     )
     system_msg = st.text_area(
         "System message",
@@ -38,13 +36,11 @@ with st.sidebar:
     do_sample = temperature > 0.0
 
     st.markdown("---")
-    if st.button("🧹 ล้างบทสนทนา"):
+    if st.button("ล้างบทสนทนา"):
         st.session_state["messages"] = []
 
-# ------------------ Cache: load tokenizer/model ------------------
 @st.cache_resource(show_spinner=True)
 def load_model_and_tokenizer(base_id: str, adapter_dir: str | None, use_adapter: bool):
-    # ใช้ BF16 ถ้ามี GPU รองรับ ไม่ใช้ 4-bit ใดๆ
     use_bf16 = torch.cuda.is_available() and torch.cuda.is_bf16_supported()
     dtype = torch.bfloat16 if use_bf16 else torch.float16
 
@@ -54,19 +50,17 @@ def load_model_and_tokenizer(base_id: str, adapter_dir: str | None, use_adapter:
 
     base = AutoModelForCausalLM.from_pretrained(
         base_id,
-        device_map="auto",         # โยนขึ้น GPU อัตโนมัติถ้ามี
+        device_map="auto",       
         torch_dtype=dtype,
         trust_remote_code=True,
     )
 
     model = base
     if use_adapter and adapter_dir and os.path.isdir(adapter_dir):
-        # โหลด LoRA แล้ว merge เป็นโมเดลเดียว (เร็วขึ้นตอน infer)
         model = PeftModel.from_pretrained(base, adapter_dir)
         try:
-            model = model.merge_and_unload()  # เปลี่ยนกลับเป็น base พร้อมน้ำหนักที่ merge แล้ว
+            model = model.merge_and_unload() 
         except Exception:
-            # ถ้า merge ไม่ได้ก็ใช้แบบติด adapter ไป
             pass
 
     model.eval()
@@ -81,27 +75,21 @@ tokenizer, model = load_model_and_tokenizer(
     use_adapter=use_adapter
 )
 
-# ------------------ Session state for chat ------------------
 if "messages" not in st.session_state:
     st.session_state["messages"] = []
 
-# แสดงประวัติแชท
 for m in st.session_state["messages"]:
     with st.chat_message(m["role"]):
         st.markdown(m["content"])
 
-# ------------------ Chat input ------------------
-user_input = st.chat_input("พิมพ์คำถามเกี่ยวกับกยศ. ได้เลย…")
+user_input = st.chat_input("พิมพ์คำถามเกี่ยวกับกยศ.")
 if user_input:
-    # เก็บลงประวัติ
     st.session_state["messages"].append({"role": "user", "content": user_input})
     with st.chat_message("user"):
         st.markdown(user_input)
 
-    # สร้าง prompt ด้วย chat template (ถ้ามี)
     messages = [{"role": "system", "content": system_msg}]
-    # จำกัดความยาวบริบทแบบง่าย ๆ เพื่อกัน OOM
-    history_tail = st.session_state["messages"][-8:]  # เอาแค่ 8 turn ล่าสุด
+    history_tail = st.session_state["messages"][-8:] 
     messages.extend(history_tail)
 
     try:
@@ -111,14 +99,12 @@ if user_input:
             add_generation_prompt=True
         )
     except Exception:
-        # fallback template
         prompt = (
             f"<|system|>\n{system_msg}\n"
             + "".join([f"<|{m['role']}|>\n{m['content']}\n" for m in history_tail])
             + "<|assistant|>\n"
         )
 
-    # เข้ารหัสและย้ายไป device เดียวกับโมเดล
     inputs = tokenizer(prompt, return_tensors="pt")
     inputs = {k: v.to(model.device) for k, v in inputs.items()}
 
@@ -136,11 +122,9 @@ if user_input:
                     eos_token_id=tokenizer.eos_token_id,
                 )
 
-            # ตัดเฉพาะส่วนที่โมเดล generate เพิ่มเข้ามา
             gen_tokens = outputs[0][inputs["input_ids"].shape[-1]:]
             text = tokenizer.decode(gen_tokens, skip_special_tokens=True).strip()
             if not text:
-                # เผื่อบางรุ่นดีโค้ดแล้วว่าง ลองดีโค้ดเต็มและ split
                 full = tokenizer.decode(outputs[0], skip_special_tokens=True)
                 if "<|assistant|>" in full:
                     text = full.split("<|assistant|>")[-1].strip()
@@ -150,9 +134,9 @@ if user_input:
             st.markdown(text)
             st.session_state["messages"].append({"role": "assistant", "content": text})
 
-# ------------------ Footer ------------------
 st.caption(
     "โมเดล: **{}**{} • FP16/BF16 (ไม่ใช้ 4-bit)".format(
         base_id, " + LoRA" if use_adapter else ""
     )
 )
+
