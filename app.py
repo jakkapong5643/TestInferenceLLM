@@ -5,7 +5,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from peft import PeftModel
 
 st.set_page_config(page_title="Student Loan Chatbot (Typhoon T1 3B)", page_icon="", layout="wide")
-st.title("กยศ. Chatbot — Typhoon T1 3B (PEFT optional)")
+st.title("กยศa. Chatbot — Typhoon T1 3B (PEFT optional)")
 
 with st.sidebar:
     st.subheader("Settings")
@@ -139,4 +139,5 @@ st.caption(
         base_id, " + LoRA" if use_adapter else ""
     )
 )
+
 
